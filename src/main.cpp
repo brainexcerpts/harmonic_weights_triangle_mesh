@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include <vector>
-#include <fstream>
 #include <cmath>
 
 #include "mesh.hpp"
@@ -10,10 +9,65 @@
 #include "topology/vertex_to_1st_ring_vertices.hpp"
 #include "solvers.hpp"
 
+// compatibility with original GLUT
+#if !defined(GLUT_WHEEL_UP)
+#  define GLUT_WHEEL_UP   3
+#  define GLUT_WHEEL_DOWN 4
+#endif
+
+// =============================================================================
+// hard coded settings
 // =============================================================================
 
-static int g_win_number;
-Mesh* g_mesh;
+/*
+ * For convenience sample models lie onto the (x,y) plane and
+ * their scale roughly range from [-1.0 1.0]
+*/
+#if 0
+const char* _sample_path = "samples/buddha.off";
+const char* _sample_path = "samples/donut.off";
+const char* _sample_path = "samples/plane_regular.off";
+const char* _sample_path = "samples/plane_regular_res1.off";
+
+// Sample mesh with wholes will not give perfect results, more advanced methods
+// will be needed to handle such messy input
+// For instance:
+// "Natural Boundary Conditions for Smoothing in Geometry Processing"
+// Could be a good start.
+const char* _sample_path = "samples/plane_wholes.off";
+#endif
+const char* _sample_path = "samples/plane_iregular_1.off";
+
+
+enum Boundary_type {
+    eSTRIP,
+    eCONE
+};
+
+
+Boundary_type _b_type = eCONE; /*eSTRIP*/
+
+// When 'true' Automatically turn around the 3D model (you can adjust angle of
+// view with the scroll wheel.
+// In addition, displace the sample model vertices along the Z axis giventhe
+// harmonic weight map value.
+
+// When 'false' we simply look at the model from the top and display vertex color
+// as a heat map (0 -> blue, 1 -> red )
+bool _3d_view = true;
+
+// When false we don't really on the first ring neighborhood to build the
+// Laplacian matrix but only the list of triangles.
+bool _use_half_edges = true;
+
+// =============================================================================
+// Global variables
+// =============================================================================
+
+// In 3D view the current angle of view from the "turntable"
+float _table_angle = 0.0f;
+static int _win_number;
+Mesh* _mesh;
 
 // List of GL_POINTS to display
 // (represents boundary conditions of the Laplace PDE, i.e the vertices
@@ -21,68 +75,8 @@ Mesh* g_mesh;
 std::vector<std::pair<Vec3/*position*/, Vec3/*color*/>> g_ogl_points;
 
 // =============================================================================
-
-/// @brief Load mesh from a file
-static Mesh* build_mesh(const char* file_name)
-{
-    Mesh* ptr = new Mesh();
-    Mesh& mesh = *ptr;
-
-    std::ifstream file( file_name );
-
-    if( !file.is_open() ){
-        std::cerr << "Can't open file: " << file_name << std::endl;
-        return nullptr;
-    }
-
-    std::string format;
-    unsigned nb_vertices = 0;
-    unsigned nb_faces = 0;
-    int nil;
-
-    file >> format;
-    file >> nb_vertices >> nb_faces >> nil;
-
-    mesh._vertices.resize( nb_vertices );
-    for (unsigned i=0; i < nb_vertices; i++ ){
-        Vec3 p;
-        file >> p.x >> p.y >> p.z;
-        mesh._vertices[i] = p;
-    }
-
-    mesh._triangles.resize( nb_faces );
-    mesh._normals.assign( nb_vertices, Vec3(0.0f));
-    mesh._colors.assign( nb_vertices, Vec3(0.0f));
-
-    for(unsigned i = 0; i < nb_faces; i++ )
-    {
-        int nb_verts_face;
-        file >> nb_verts_face;
-
-        if(nb_verts_face != 3) {
-            std::cerr << "We only handle triangle faces" << std::endl;
-            continue;
-        }
-
-        Tri_face& tri = mesh._triangles[i];
-        file >> tri.a >> tri.b >> tri.c;
-
-        // Compute normals:
-        Vec3 v1 = mesh._vertices[tri.b] - mesh._vertices[tri.a];
-        Vec3 v2 = mesh._vertices[tri.c] - mesh._vertices[tri.a];
-
-        Vec3 n = v1.cross( v2 );
-        n.normalize();
-
-        mesh._normals[ tri.a ] += n;
-        mesh._normals[ tri.b ] += n;
-        mesh._normals[ tri.c ] += n;
-    }
-    file.close();
-    return ptr;
-}
-
-// ----------
+// GLUT
+// =============================================================================
 
 void draw_mesh(const Mesh& mesh) {
     glEnable(GL_COLOR_MATERIAL);
@@ -105,23 +99,25 @@ void draw_mesh(const Mesh& mesh) {
 // -----------------------------------------------------------------------------
 
 void key_stroke (unsigned char c, int mouseX, int mouseY) {
-    static bool wires  = false;
+    static bool _wires  = false;
 
     switch (c) {
     case 27 :
         glFinish();
-        glutDestroyWindow(g_win_number);
+        glutDestroyWindow(_win_number);
         exit (0);
         break;
     case 'w' :
-        if(!wires) {
+        if(!_wires) {
             glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_LIGHTING);
             glutPostRedisplay();
-            wires = true;
+            _wires = true;
         }else {
             glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+            glEnable(GL_LIGHTING);
             glutPostRedisplay();
-            wires = false;
+            _wires = false;
         }
         break;
     }
@@ -129,9 +125,19 @@ void key_stroke (unsigned char c, int mouseX, int mouseY) {
 
 // -----------------------------------------------------------------------------
 
+void mouse_keys (int button, int state, int x, int y)
+{
+    if(button == GLUT_WHEEL_UP)
+        _table_angle += 1.0f;
+    if(button == GLUT_WHEEL_DOWN)
+        _table_angle -= 1.0f;
+}
+
+// -----------------------------------------------------------------------------
+
 void display(void)
 {
-    glClearColor (0.8, 0.8, 0.8, 0.0);
+    glClearColor ( 0.93,  0.93,  0.93,  0.93);
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
     glViewport(0,0,900,900);
@@ -142,10 +148,27 @@ void display(void)
 
     glMatrixMode (GL_MODELVIEW);
     glLoadIdentity ();
-    glTranslatef(0.0, 0.0, -1.0);
+
+    if(_3d_view){
+        GLfloat lightPos0[] = {0.0f, 0.0f, 0.0f, 1.0f};
+        glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
+
+        glTranslatef(0.0, 0.0, -1.5);
+        glRotatef(45.0f, -1.0f, 0.0f, 0.0f);
+        glRotatef(_table_angle, -1.0f, 0.0f, 0.0f);
+
+        static float angle = 0.0f;
+        angle = fmodf(angle+0.3f, 360.f);
+        //glRotatef(angle, 1.0f, 0.0f, 0.0f);
+        glRotatef(angle, 0.0f, 0.0f, 1.0f);
+        glutPostRedisplay();
+    }
+    else
+        glTranslatef(0.0, 0.0, -1.0);
     float s = 0.5f;
     glScalef(s, s, s);
-    draw_mesh(*g_mesh);
+    draw_mesh(*_mesh);
+
 
     glPointSize(6.0f);
     glBegin(GL_POINTS);
@@ -161,7 +184,8 @@ void display(void)
     glFlush ();
 }
 
-// -----------------------------------------------------------------------------
+// =============================================================================
+// =============================================================================
 
 static Vec3 heat_color(float w)
 {
@@ -197,28 +221,10 @@ float level_curves_greyscale(float f, float scale = 1.)
 
 // -----------------------------------------------------------------------------
 
-void compute_harmonic_map()
+void set_strip_boundaries(std::vector<std::pair<Vert_idx, float> >& boundaries,
+                          const Mesh& mesh,
+                          float length = 0.1f)
 {
-    //g_mesh = build_mesh("samples/buddha.off");
-    //g_mesh = build_mesh("samples/donut.off");
-    //g_mesh = build_mesh("samples/plane_regular.off");
-    //g_mesh = build_mesh("samples/plane_regular_res1.off");
-    g_mesh = build_mesh("samples/plane_iregular_1.off");
-    //g_mesh = build_mesh("samples/plane_wholes.off");
-    Mesh& mesh = *g_mesh;
-
-    // Compute first ring
-    Vertex_to_face v_to_face;
-    v_to_face.compute( mesh );
-    Vertex_to_1st_ring_vertices first_ring;
-    first_ring.compute(mesh, v_to_face );
-
-
-    std::vector< Vec3 > vertices = mesh._vertices;
-    std::vector< std::vector<int> > edges = first_ring._rings_per_vertex;
-
-
-    /// Define boundary conditions
     /*
      *  Our sample models coordinates should roughly lie between [-1, 1]
      *  We are going to select a thin strip of vertices on the top and bottom
@@ -245,11 +251,7 @@ void compute_harmonic_map()
      *
     */
 
-    // Size of the strip:
-    float length = 0.1f;
-
-    // boundaries[] = (vertex idx, fixed value for the weight map)
-    std::vector<std::pair<Vert_idx, float> > boundaries( mesh.nb_vertices() );
+    boundaries.resize(mesh.nb_vertices());
     int acc = 0;
     for(int i = 0; i < mesh.nb_vertices(); ++i)
     {
@@ -265,62 +267,167 @@ void compute_harmonic_map()
         }
     }
     boundaries.resize( acc );
+}
 
-    std::vector<double> weight_map( mesh.nb_vertices() );
-    solve_laplace_equation(vertices, edges, boundaries, weight_map);
+// -----------------------------------------------------------------------------
 
-    /// Set mesh color according to the computed weight map
-    /// Also compute some error metrics
-    float max_error  = 0.0f;
-    float mean_error = 0.0f;
-    for(unsigned v = 0; v < mesh.nb_vertices(); ++v)
+/*
+
+    Set boundary conditions to look like this:
+
+
+        0   0   0   0   0   0   0   0
+
+        0                           0
+                    1  1
+        0        1       1          0
+                1          1
+        0       1          1        0
+                 1        1
+        0           1  1            0
+
+        0                           0
+                                      ▲
+        0   0   0   0   0   0   0   0 | length
+                                 <--> ▼
+                                length
+
+    0s on all sides and 1s in the middle
+
+*/
+void set_cone_boundaries(std::vector<std::pair<Vert_idx, float> >& boundaries,
+                         const Mesh& mesh,
+                         float length = 0.01f)
+{
+    boundaries.resize(mesh.nb_vertices());
+    int acc = 0;
+    for(int i = 0; i < mesh.nb_vertices(); ++i)
     {
-        float dist = (mesh._vertices[v].y + 1.0f) * 0.5f;
-        float x = weight_map[v];
+        Vec3 pos = mesh._vertices[i];
+        float dist = (pos.y + 1.0f) * 0.5f;
+        // Set bottom strip
+        if( dist < length) {
+            boundaries[acc++] = std::make_pair(i, 0.0f);
+            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+        }
 
-        float error = std::abs(dist-x);
-        max_error = std::max( max_error, error);
-        mean_error += error;
+        // Set top strip
+        if( dist > (1.0f-length) ) {
+            boundaries[acc++] = std::make_pair(i, 0.0f);
+            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+        }
 
-        if(true)
-            mesh._colors[v] = heat_color(x) * level_curves_greyscale(x, 10.0f);
-        else{
-            //mesh._colors[v] = Vec3( std::sqrt(error*5.0) );
-            mesh._colors[v] = heat_color( std::sqrt(error*5.0) );
+        dist = (pos.x + 1.0f) * 0.5f;
+        // set left strip
+        if( dist < length) {
+            boundaries[acc++] = std::make_pair(i, 0.0f);
+            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+        }
+
+        // set right strip
+        if( dist > (1.0f-length) ) {
+            boundaries[acc++] = std::make_pair(i, 0.0f);
+            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+        }
+
+        // Set central values
+        dist = (pos.x*pos.x + pos.y*pos.y);
+        if( dist < length) {
+            boundaries[acc++] = std::make_pair(i, 1.0f);
+            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(1.0f, 0.0f, 0.0f) );
         }
     }
+    boundaries.resize( acc );
+}
 
-    std::cout << "Mean error from the cartesian distance: " << mean_error/(float)mesh.nb_vertices() << std::endl;
-    std::cout << "Max error from the cartesian distance: " << max_error << std::endl;
+// -----------------------------------------------------------------------------
+
+void deform_mesh(std::vector<Vec3>& vertices, const std::vector<double>& weight_map){
+    float s = 1.0f;
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        Vec3& v = vertices[i];
+        v.z = v.z + float(weight_map[i]) * s;
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+void compute_harmonic_map()
+{
+    _mesh = build_mesh(_sample_path);
+    Mesh& mesh = *_mesh;
+
+    // Compute first ring
+    Vertex_to_face v_to_face;
+    v_to_face.compute( mesh );
+    Vertex_to_1st_ring_vertices first_ring;
+    first_ring.compute(mesh, v_to_face );
+
+    std::vector< std::vector<int> > edges = first_ring._rings_per_vertex;
+
+    /// Define boundary conditions
+    std::vector<std::pair<Vert_idx, float> > boundaries;
+    switch (_b_type) {
+    case eSTRIP: set_strip_boundaries(boundaries, mesh); break;
+    case eCONE:  set_cone_boundaries(boundaries, mesh);  break;
+    }
+
+    if( !_use_half_edges ){
+        edges.clear();
+    }
+    std::vector<double> weight_map( mesh.nb_vertices() );
+    solve_laplace_equation(mesh._vertices,
+                           edges,
+                           mesh._triangles,
+                           boundaries,
+                           weight_map);
+
+    if(_3d_view)
+    {
+        // Displace vertices along Z axis
+        deform_mesh(_mesh->_vertices, weight_map);
+        compute_normals(*_mesh);
+        for(unsigned v = 0; v < mesh.nb_vertices(); ++v)
+            mesh._colors[v] = (mesh._normals[v]+1.0f)*0.5f;
+    }
+    else
+    {
+        /// Set mesh color according to the computed weight map
+        for(unsigned v = 0; v < mesh.nb_vertices(); ++v)
+        {
+            float x = weight_map[v];
+            mesh._colors[v] = heat_color(x) * level_curves_greyscale(x, 10.0f);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+void setup_glut(int argc, char** argv)
+{
+    glutInit (&argc, argv);
+    glutInitDisplayMode (GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    glutInitWindowSize (900, 900);
+    glutInitWindowPosition (240, 212);
+    _win_number = glutCreateWindow (argv[0]);
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_NORMALIZE);
+    //glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+
+    glutKeyboardFunc(key_stroke);
+    glutMouseFunc(mouse_keys);
+    glutDisplayFunc(display);
 }
 
 // -----------------------------------------------------------------------------
 
 int main (int argc, char** argv)
 {
-
-#ifndef NDEBUG
-   std::cout << "debug" << std::endl;
-#else
-    std::cout << "release" << std::endl;
-#endif
     compute_harmonic_map();
-
-    glutInit (&argc, argv);
-    glutInitDisplayMode (GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutInitWindowSize (900, 900);
-    glutInitWindowPosition (240, 212);
-    g_win_number = glutCreateWindow (argv[0]);
-
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_NORMALIZE);
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-
-    glutKeyboardFunc(key_stroke);
-    glutDisplayFunc(display);
+    setup_glut(argc, argv);
     glutMainLoop();
-
     return (0);
 }
 

@@ -120,7 +120,7 @@ float angle_between(const Vec3& v1, const Vec3& v2)
 
 // -----------------------------------------------------------------------------
 
-/// @return A sparse representation of the Laplacian
+/// @return A sparse representation of the Laplacian matrix 'L'
 /// list[ith_row][list of columns] = Triplet(ith_row, jth_column, matrix value)
 static
 std::vector<std::vector<Triplet>>
@@ -173,7 +173,7 @@ get_laplacian(const std::vector< Vec3 >& vertices,
                 // TODO: check for edge cases such as
                 // the mesh corners and boundaries and adjust cotan weights
                 // appropriatly ...
-                w = (cotan1 + cotan2);
+                w = (cotan1 + cotan2) * 0.5f;
             } else {
                 // Mean value coordinations weights:
                 // doesn't really work something must be wrong
@@ -186,9 +186,22 @@ get_laplacian(const std::vector< Vec3 >& vertices,
                 w = (tan1 + tan2) / (1e-6 + v5_norm);
             }
 
-            double area = get_cell_area(i, vertices, edges);
-            area = 1. / ((1e-10 + area) * 2.f);
-            w *= area;
+
+            // Disable / Enable multiplying against the inverse of
+            // the Mass matrix 'M':
+            if(false)
+            {
+                // If we want to return M^{-1}.L instead of just L
+                // Then we can do it here since its more efficient
+                // than building M^{-1} and then do the product M^{-1}.L
+                // Since we solve for harmonic weights
+                // M^{-1}.L = 0 can be simplified to L = 0
+                // and this step safely ignored
+                double area = get_cell_area(i, vertices, edges);
+                area = 1. / ((1e-10 + area));
+                w *= area;
+            }
+
             sum += w;
 
             mat_elemts[i].push_back( Triplet(i, edges[i][e], w) );
@@ -201,19 +214,86 @@ get_laplacian(const std::vector< Vec3 >& vertices,
 
 //------------------------------------------------------------------------------
 
+/*
+    Alternate implementation of the Laplacian matrix using only the
+    list of triangles instead of the first ring neighboors.
+*/
+static
+std::vector<std::vector<Triplet>>
+get_laplacian(const std::vector< Vec3 >& vertices,
+              const std::vector< Tri_face >& triangles )
+{
+
+    unsigned nv = unsigned(vertices.size());
+    std::vector<std::vector<Triplet>> mat_elemts(nv);
+    for(int i = 0; i < nv; ++i)
+        mat_elemts[i].reserve(10);
+
+    for( const Tri_face& f : triangles)
+    {
+        struct Edge { int i, j, org; };
+        std::vector<Edge> edges =
+        {
+            {f.a, f.b, f.c},
+            {f.b, f.c, f.a},
+            {f.c, f.a, f.b},
+        };
+
+        for(Edge edge : edges)
+        {
+            /*
+                                    j
+                                   ◥
+                                  /  \
+                                 v2   \
+                                /      \
+                               /        \
+                        (cotan)----v1---▶ i
+                           org
+            */
+            Vec3 v1 = vertices[edge.org] - vertices[edge.i];
+            Vec3 v2 = vertices[edge.org] - vertices[edge.j];
+            double cotan = (v1.dot(v2)) / (1e-6 + (v1.cross(v2)).norm() );
+            float w = cotan * 0.5f;
+
+            int i = edge.i;
+            int j = edge.j;
+            // Note Eigen::setFromTriplets will sum up duplicate elements for us
+            mat_elemts[i].push_back( Triplet(i, j,  w) );
+            mat_elemts[j].push_back( Triplet(j, i,  w) );
+            mat_elemts[i].push_back( Triplet(i, i, -w) );
+            mat_elemts[j].push_back( Triplet(j, j, -w) );
+        }
+    }
+    return mat_elemts;
+}
+
+//------------------------------------------------------------------------------
+
 // Compute harmonic weights
 void solve_laplace_equation(const std::vector< Vec3 >& vertices,
         const std::vector< std::vector<int> >& edges,
+        const std::vector<Tri_face>& triangles,
         const std::vector<std::pair<Vert_idx, float> >& boundaries,
         std::vector<double>& harmonic_weight_map)
 {
-
     std::cout << "COMPUTE LAPLACE EQUATION" << std::endl;
 
     int nv = vertices.size();
-    // compute laplacian matrix of the mesh
 
-    std::vector<std::vector<Triplet>> mat_elemts = get_laplacian(vertices, edges);
+    // compute laplacian matrix of the mesh
+    /*
+        We can build the laplacian 'L' either from the half edge data structure
+        (edges) or simply the list of triangles.
+        For reference both versions are implemented here.
+    */
+    assert(edges.size() > 0 || triangles.size() > 0 );
+    std::vector<std::vector<Triplet>> mat_elemts;
+    if( edges.size() > 0)
+        mat_elemts = get_laplacian(vertices, edges);
+    else if( triangles.size() > 0 )
+        mat_elemts = get_laplacian(vertices, triangles);
+
 
     // Set boundary conditions
     Eigen::VectorXd rhs = Eigen::VectorXd::Constant(nv, 0.);
@@ -228,6 +308,7 @@ void solve_laplace_equation(const std::vector< Vec3 >& vertices,
 
 
 #if 0
+    // Solving with a dense matrix is Extremely slow
     Eigen::MatrixXd L = Eigen::MatrixXd::Constant(nv, nv, 0.);
     for( const std::vector<Triplet>& row : mat_elemts)
         for( const Triplet& elt : row )

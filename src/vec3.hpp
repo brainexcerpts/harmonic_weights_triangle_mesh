@@ -3,8 +3,8 @@
 
 #include <cmath>
 
+/// 3D vector with the usual operations + - * / overloaded
 struct Vec3 {
-
     float x, y, z;
 
     // -------------------------------------------------------------------------
