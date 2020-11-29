@@ -3,10 +3,10 @@ Compute harmonic weights over a triangle mesh using the Laplacian matrix and cot
 The result is display with GLUT.
 
 At the top of main.cpp you can play with hard coded parameters to change sample models or display mode:
-    - _3d_view
-    - _b_type
-    - _sample_path
-    - etc.
+- _3d_view
+- _b_type
+- _sample_path
+- etc.
     
 Toogle wireframe view with the 'w' key
 
