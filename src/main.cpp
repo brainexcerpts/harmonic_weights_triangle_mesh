@@ -24,19 +24,18 @@
  * For convenience sample models lie onto the (x,y) plane and
  * their scale roughly range from [-1.0 1.0]
 */
-#if 0
-const char* _sample_path = "samples/buddha.off";
-const char* _sample_path = "samples/donut.off";
-const char* _sample_path = "samples/plane_regular.off";
-const char* _sample_path = "samples/plane_regular_res1.off";
+//const char* _sample_path = "samples/buddha.off";
+//const char* _sample_path = "samples/donut.off";
+//const char* _sample_path = "samples/plane_regular.off";
+//const char* _sample_path = "samples/plane_regular_res1.off";
 
 // Sample mesh with wholes will not give perfect results, more advanced methods
 // will be needed to handle such messy input
 // For instance:
 // "Natural Boundary Conditions for Smoothing in Geometry Processing"
 // Could be a good start.
-const char* _sample_path = "samples/plane_wholes.off";
-#endif
+//const char* _sample_path = "samples/plane_wholes.off";
+
 const char* _g_sample_path = "samples/plane_iregular_1.off";
 
 

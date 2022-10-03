@@ -72,7 +72,7 @@ double mixed_voronoi_area(const Vec3& pi,
     }
     else
     {
-        const double ta = (double)e0.cross( e1 ).norm() / 2.; // Tri area
+        const double ta = (double)e0.cross( e1 ).norm() * 0.5; // Tri area
         area = ta / (check_obtuse(e0, e1) ? 2. : 4.);
     }
     return area;
@@ -101,7 +101,7 @@ double get_cell_area(int vidx,
             // This should give descent results as well:
             Vec3 edge0 = vertices[edges[vidx][e ]] - c_pos;
             Vec3 edge1 = vertices[edges[vidx][ne]] - c_pos;
-            area += (edge0.cross(edge1)).norm() / 2.f;
+            area += (edge0.cross(edge1)).norm() * 0.5;
         }
     }
     return area;
