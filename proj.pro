@@ -12,6 +12,7 @@ QMAKE_LFLAGS_RELEASE -= -O1
 
 
 INCLUDEPATH += ./ ./src
+INCLUDEPATH += C:/Qt/Tools/mingw730_64/x86_64-w64-mingw32/include
 
 SOURCES += \
     $$files(src/*.cpp) \
@@ -20,3 +21,5 @@ SOURCES += \
 HEADERS += \
     $$files(src/*.hpp) \
     $$files(src/topology/*.hpp)
+
+CONFIG += c++14

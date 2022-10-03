@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <vector>
+#include <utility>
 #include <cmath>
 
 #include "mesh.hpp"
@@ -36,7 +37,8 @@ const char* _sample_path = "samples/plane_regular_res1.off";
 // Could be a good start.
 const char* _sample_path = "samples/plane_wholes.off";
 #endif
-const char* _sample_path = "samples/plane_iregular_1.off";
+const char* _g_sample_path = "samples/plane_iregular_1.off";
+
 
 
 enum Boundary_type {
@@ -45,7 +47,7 @@ enum Boundary_type {
 };
 
 
-Boundary_type _b_type = eCONE; /*eSTRIP*/
+Boundary_type _g_boundary_type = eCONE; /*eSTRIP*/
 
 // When 'true' Automatically turn around the 3D model (you can adjust angle of
 // view with the scroll wheel.
@@ -54,25 +56,25 @@ Boundary_type _b_type = eCONE; /*eSTRIP*/
 
 // When 'false' we simply look at the model from the top and display vertex color
 // as a heat map (0 -> blue, 1 -> red )
-bool _3d_view = true;
+bool _g_3d_view = true;
 
-// When false we don't really on the first ring neighborhood to build the
+// When false we don't rely on the first ring neighborhood to build the
 // Laplacian matrix but only the list of triangles.
-bool _use_half_edges = true;
+bool _g_use_half_edges = true;
 
 // =============================================================================
 // Global variables
 // =============================================================================
 
 // In 3D view the current angle of view from the "turntable"
-float _table_angle = 0.0f;
-static int _win_number;
-Mesh* _mesh;
+float _g_table_angle = 0.0f;
+static int _g_win_number;
+Mesh* _g_mesh;
 
 // List of GL_POINTS to display
 // (represents boundary conditions of the Laplace PDE, i.e the vertices
 // where we fix values by hand)
-std::vector<std::pair<Vec3/*position*/, Vec3/*color*/>> g_ogl_points;
+std::vector<std::pair<Vec3/*position*/, Vec3/*color*/>> _g_ogl_points;
 
 // =============================================================================
 // GLUT
@@ -98,13 +100,13 @@ void draw_mesh(const Mesh& mesh) {
 
 // -----------------------------------------------------------------------------
 
-void key_stroke (unsigned char c, int mouseX, int mouseY) {
+void key_stroke (unsigned char c, int /*mouseX*/, int /*mouseY*/) {
     static bool _wires  = false;
 
     switch (c) {
     case 27 :
         glFinish();
-        glutDestroyWindow(_win_number);
+        glutDestroyWindow(_g_win_number);
         exit (0);
         break;
     case 'w' :
@@ -128,9 +130,9 @@ void key_stroke (unsigned char c, int mouseX, int mouseY) {
 void mouse_keys (int button, int state, int x, int y)
 {
     if(button == GLUT_WHEEL_UP)
-        _table_angle += 1.0f;
+        _g_table_angle += 1.0f;
     if(button == GLUT_WHEEL_DOWN)
-        _table_angle -= 1.0f;
+        _g_table_angle -= 1.0f;
 }
 
 // -----------------------------------------------------------------------------
@@ -149,13 +151,13 @@ void display(void)
     glMatrixMode (GL_MODELVIEW);
     glLoadIdentity ();
 
-    if(_3d_view){
+    if(_g_3d_view){
         GLfloat lightPos0[] = {0.0f, 0.0f, 0.0f, 1.0f};
         glLightfv(GL_LIGHT0, GL_POSITION, lightPos0);
 
         glTranslatef(0.0, 0.0, -1.5);
         glRotatef(45.0f, -1.0f, 0.0f, 0.0f);
-        glRotatef(_table_angle, -1.0f, 0.0f, 0.0f);
+        glRotatef(_g_table_angle, -1.0f, 0.0f, 0.0f);
 
         static float angle = 0.0f;
         angle = fmodf(angle+0.3f, 360.f);
@@ -167,12 +169,12 @@ void display(void)
         glTranslatef(0.0, 0.0, -1.0);
     float s = 0.5f;
     glScalef(s, s, s);
-    draw_mesh(*_mesh);
+    draw_mesh(*_g_mesh);
 
 
     glPointSize(6.0f);
     glBegin(GL_POINTS);
-    for(auto elt : g_ogl_points){
+    for(auto elt : _g_ogl_points){
         Vec3 v = elt.first;
         Vec3 c = elt.second;
         glColor3f ( c.x, c.y, c.z);
@@ -258,12 +260,12 @@ void set_strip_boundaries(std::vector<std::pair<Vert_idx, float> >& boundaries,
         float dist = (mesh._vertices[i].y + 1.0f) * 0.5f;
         if( dist < length) {
             boundaries[acc++] = std::make_pair(i, dist);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(1.0f, 0.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(1.0f, 0.0f, 0.0f) );
         }
 
         if( dist > (1.0f-length) ) {
             boundaries[acc++] = std::make_pair(i, dist);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
         }
     }
     boundaries.resize( acc );
@@ -308,33 +310,33 @@ void set_cone_boundaries(std::vector<std::pair<Vert_idx, float> >& boundaries,
         // Set bottom strip
         if( dist < length) {
             boundaries[acc++] = std::make_pair(i, 0.0f);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
         }
 
         // Set top strip
         if( dist > (1.0f-length) ) {
             boundaries[acc++] = std::make_pair(i, 0.0f);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
         }
 
         dist = (pos.x + 1.0f) * 0.5f;
         // set left strip
         if( dist < length) {
             boundaries[acc++] = std::make_pair(i, 0.0f);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
         }
 
         // set right strip
         if( dist > (1.0f-length) ) {
             boundaries[acc++] = std::make_pair(i, 0.0f);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(0.0f, 1.0f, 0.0f) );
         }
 
         // Set central values
         dist = (pos.x*pos.x + pos.y*pos.y);
         if( dist < length) {
             boundaries[acc++] = std::make_pair(i, 1.0f);
-            g_ogl_points.emplace_back( mesh._vertices[i], Vec3(1.0f, 0.0f, 0.0f) );
+            _g_ogl_points.emplace_back( mesh._vertices[i], Vec3(1.0f, 0.0f, 0.0f) );
         }
     }
     boundaries.resize( acc );
@@ -354,8 +356,8 @@ void deform_mesh(std::vector<Vec3>& vertices, const std::vector<double>& weight_
 
 void compute_harmonic_map()
 {
-    _mesh = build_mesh(_sample_path);
-    Mesh& mesh = *_mesh;
+    _g_mesh = build_mesh(_g_sample_path);
+    Mesh& mesh = *_g_mesh;
 
     // Compute first ring
     Vertex_to_face v_to_face;
@@ -367,12 +369,12 @@ void compute_harmonic_map()
 
     /// Define boundary conditions
     std::vector<std::pair<Vert_idx, float> > boundaries;
-    switch (_b_type) {
+    switch (_g_boundary_type) {
     case eSTRIP: set_strip_boundaries(boundaries, mesh); break;
     case eCONE:  set_cone_boundaries(boundaries, mesh);  break;
     }
 
-    if( !_use_half_edges ){
+    if( !_g_use_half_edges ){
         edges.clear();
     }
     std::vector<double> weight_map( mesh.nb_vertices() );
@@ -382,11 +384,11 @@ void compute_harmonic_map()
                            boundaries,
                            weight_map);
 
-    if(_3d_view)
+    if(_g_3d_view)
     {
         // Displace vertices along Z axis
-        deform_mesh(_mesh->_vertices, weight_map);
-        compute_normals(*_mesh);
+        deform_mesh(_g_mesh->_vertices, weight_map);
+        compute_normals(*_g_mesh);
         for(unsigned v = 0; v < mesh.nb_vertices(); ++v)
             mesh._colors[v] = (mesh._normals[v]+1.0f)*0.5f;
     }
@@ -409,7 +411,7 @@ void setup_glut(int argc, char** argv)
     glutInitDisplayMode (GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize (900, 900);
     glutInitWindowPosition (240, 212);
-    _win_number = glutCreateWindow (argv[0]);
+    _g_win_number = glutCreateWindow (argv[0]);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_NORMALIZE);
@@ -425,9 +427,16 @@ void setup_glut(int argc, char** argv)
 
 int main (int argc, char** argv)
 {
+
+#ifndef NDEBUG
+   std::cout << "debug" << std::endl;
+#else
+    std::cout << "release" << std::endl;
+#endif
     compute_harmonic_map();
     setup_glut(argc, argv);
     glutMainLoop();
+	
     return (0);
 }
 
