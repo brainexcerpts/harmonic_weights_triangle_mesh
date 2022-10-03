@@ -2,7 +2,7 @@
 <img src="http://rodolphe-vaillant.fr/images/2019-05/harmonic_function_triangle_mesh_banner.jpg" alt="2d spline">
 
 Compute harmonic weights over a triangle mesh using the Laplacian matrix and cotangent weights.
-The result is display with GLUT. <a href="rodolphe-vaillant.fr/index.php?e=20">For more details on the math see my article</a>
+The result is display with GLUT. <a href="http://rodolphe-vaillant.fr/index.php?e=20">For more details on the math see my article</a>
 
 At the top of main.cpp you can play with hard coded parameters to change sample models or display mode:
 - _3d_view
