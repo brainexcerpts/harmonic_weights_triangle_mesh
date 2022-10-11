@@ -5,6 +5,8 @@
 #include "mesh.hpp"
 #include "vec3.hpp"
 
+/// http://rodolphe-vaillant.fr/entry/20/compute-harmonic-weights-on-a-triangular-mesh
+///
 /// @brief Compute harmonic weight map of a triangle mesh
 /// @param vertices : list of vertex positions
 /// @param edges : list of first ring neighbors for each vertex
