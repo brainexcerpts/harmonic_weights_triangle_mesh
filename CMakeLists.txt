@@ -53,8 +53,7 @@ if(WIN32)
         winmm
         gdi32
         ${MISC}
-        ${OPENGL_LIBRARIES}
-        glut
+        ${OPENGL_LIBRARIES}        
     )
 else()
     TARGET_LINK_LIBRARIES( ${PROJECT_NAME}
